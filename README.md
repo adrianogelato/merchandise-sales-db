@@ -12,6 +12,8 @@ The system has two implementations:
 
 The Supabase database is publicly readable for product and stock data. No authentication needed.
 
+**Link to demo page:** https://adrianogelato.github.io/merchandise-sales-db/
+
 **Browse products:**
 ```bash
 
