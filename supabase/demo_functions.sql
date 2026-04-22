@@ -295,3 +295,65 @@ END;
 $$;
 
 GRANT EXECUTE ON FUNCTION demo_reset_to_seed() TO anon;
+
+
+-- ── demo_add_order_entry(...) ─────────────────────────────────
+-- Inserts a single row into the order_entry staging table.
+-- Validates inputs before inserting; caps total order_entry rows at 50
+-- to prevent abuse on the free tier.
+
+CREATE OR REPLACE FUNCTION demo_add_order_entry(
+  p_customer_name    text,
+  p_insta_handle     text,
+  p_order_date       date,
+  p_paypal_reference text,
+  p_variant_id       text,
+  p_quantity         int,
+  p_unit_price       numeric
+)
+RETURNS json
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  MAX_ENTRIES CONSTANT int := 50;
+  v_new_id int;
+BEGIN
+  -- Storage cap
+  IF (SELECT COUNT(*) FROM order_entry) >= MAX_ENTRIES THEN
+    RAISE EXCEPTION 'Order entry cap reached (% rows). Reset to seed state first.', MAX_ENTRIES;
+  END IF;
+
+  -- Required field checks
+  IF trim(coalesce(p_insta_handle, ''))     = '' THEN RAISE EXCEPTION 'insta_handle is required'; END IF;
+  IF trim(coalesce(p_paypal_reference, '')) = '' THEN RAISE EXCEPTION 'paypal_reference is required'; END IF;
+  IF trim(coalesce(p_variant_id, ''))       = '' THEN RAISE EXCEPTION 'variant_id is required'; END IF;
+  IF coalesce(p_quantity, 0) <= 0           THEN RAISE EXCEPTION 'quantity must be greater than 0'; END IF;
+  IF coalesce(p_unit_price, -1) < 0         THEN RAISE EXCEPTION 'unit_price cannot be negative'; END IF;
+
+  -- Variant must exist
+  IF NOT EXISTS (SELECT 1 FROM product_variants WHERE variant_id = p_variant_id) THEN
+    RAISE EXCEPTION 'variant_id ''%'' does not exist', p_variant_id;
+  END IF;
+
+  INSERT INTO order_entry (
+    customer_name, insta_handle, order_date, paypal_reference,
+    variant_id, quantity, unit_price, status, processed
+  ) VALUES (
+    p_customer_name,
+    p_insta_handle,
+    coalesce(p_order_date, current_date),
+    p_paypal_reference,
+    p_variant_id,
+    p_quantity,
+    p_unit_price,
+    'paid',
+    FALSE
+  ) RETURNING id INTO v_new_id;
+
+  RETURN json_build_object('id', v_new_id, 'ok', true);
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION demo_add_order_entry(text, text, date, text, text, int, numeric) TO anon;

@@ -104,6 +104,26 @@
     .result-info{ background: #e8f0fe; color: #1a3a6b; }
     .hidden { display: none; }
 
+    /* ── Form ── */
+    .form-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem 1.25rem;
+    }
+    @media (max-width: 540px) { .form-grid { grid-template-columns: 1fr; } }
+    .form-field { display: flex; flex-direction: column; gap: 0.3rem; }
+    .form-field label { font-size: 0.8rem; font-weight: 500; color: #555; }
+    .form-field input, .form-field select {
+      padding: 0.4rem 0.6rem; border: 1px solid #ddd; border-radius: 6px;
+      font-size: 0.875rem; width: 100%;
+    }
+    .form-field input:focus, .form-field select:focus {
+      outline: none; border-color: #1a56cc; box-shadow: 0 0 0 2px rgba(26,86,204,0.12);
+    }
+    .hint { font-weight: 400; color: #aaa; font-size: 0.75rem; }
+    .btn-link {
+      background: none; border: none; color: #1a56cc; font-size: 0.75rem;
+      cursor: pointer; padding: 0 0.25rem; text-decoration: underline;
+    }
+
     /* ── Misc ── */
     .loading { color: #aaa; font-size: 0.875rem; padding: 0.5rem 0; }
     .empty   { color: #aaa; font-size: 0.875rem; font-style: italic; padding: 0.5rem 0; }
@@ -152,6 +172,61 @@
       <button class="btn btn-danger" id="btn-reset">Reset to seed state</button>
     </div>
     <div id="etl-result" class="result hidden"></div>
+  </section>
+
+  <!-- ── Add Order Entry ── -->
+  <section>
+    <h2>Add Order Entry</h2>
+
+    <div class="panel" style="margin-bottom:1rem">
+      <p style="font-size:0.875rem;color:#555;margin-bottom:1rem">
+        Enter a new row into the <code>order_entry</code> staging table.
+        Rows sharing the same <strong>PayPal reference</strong> are treated as one multi-item order by the ETL.
+        The ETL will normalise the handle (strip <code>@</code>, lowercase) and reject invalid input — try both.
+      </p>
+
+      <form id="entry-form" autocomplete="off">
+        <div class="form-grid">
+          <div class="form-field">
+            <label for="f-name">Customer name</label>
+            <input type="text" id="f-name" placeholder="e.g. Jane D." />
+          </div>
+          <div class="form-field">
+            <label for="f-handle">Instagram handle <span class="hint">(ETL strips @ and lowercases)</span></label>
+            <input type="text" id="f-handle" placeholder="e.g. @Jane_D" required />
+          </div>
+          <div class="form-field">
+            <label for="f-ref">
+              PayPal reference
+              <button type="button" class="btn-link" id="btn-new-ref">new</button>
+            </label>
+            <input type="text" id="f-ref" placeholder="PP-DEMO-001" required />
+          </div>
+          <div class="form-field">
+            <label for="f-date">Order date</label>
+            <input type="date" id="f-date" required />
+          </div>
+          <div class="form-field">
+            <label for="f-variant">Variant</label>
+            <select id="f-variant" required>
+              <option value="">Loading variants…</option>
+            </select>
+          </div>
+          <div class="form-field">
+            <label for="f-qty">Quantity</label>
+            <input type="number" id="f-qty" min="1" value="1" required style="width:5rem" />
+          </div>
+          <div class="form-field">
+            <label for="f-price">Unit price (€) <span class="hint">(auto-filled, editable)</span></label>
+            <input type="number" id="f-price" min="0" step="0.01" required style="width:7rem" />
+          </div>
+        </div>
+        <div style="margin-top:1rem;display:flex;align-items:center;gap:0.75rem">
+          <button type="submit" class="btn btn-primary" id="btn-add-entry">Add to queue</button>
+          <div id="entry-result" class="result hidden"></div>
+        </div>
+      </form>
+    </div>
   </section>
 
   <!-- ── Product Catalog ── -->
@@ -376,11 +451,87 @@
     }
   });
 
+  // ── Variant dropdown ───────────────────────────────────────
+
+  let variantPrices = {}; // variant_id → base_price
+
+  async function loadVariantSelect() {
+    const sel = document.getElementById('f-variant');
+    try {
+      const rows = await get(
+        '/product_variants?select=variant_id,size,current_stock,products(name,base_price)&order=products(name),size'
+      );
+      variantPrices = {};
+      rows.forEach(r => { variantPrices[r.variant_id] = r.products?.base_price ?? 0; });
+      sel.innerHTML = '<option value="">— select variant —</option>' +
+        rows.map(r => {
+          const label = r.products?.name + (r.size ? ` — ${r.size}` : '') + ` (${r.variant_id})`;
+          return `<option value="${r.variant_id}" data-price="${r.products?.base_price ?? 0}">${label}</option>`;
+        }).join('');
+    } catch (e) {
+      sel.innerHTML = '<option value="">Could not load variants</option>';
+    }
+  }
+
+  document.getElementById('f-variant').addEventListener('change', e => {
+    const price = variantPrices[e.target.value];
+    if (price != null) document.getElementById('f-price').value = price;
+  });
+
+  // ── PayPal ref generator ───────────────────────────────────
+
+  function genRef() {
+    return 'PP-DEMO-' + Math.random().toString(36).slice(2, 6).toUpperCase();
+  }
+
+  document.getElementById('btn-new-ref').addEventListener('click', () => {
+    document.getElementById('f-ref').value = genRef();
+  });
+
+  // ── Order entry form submission ────────────────────────────
+
+  document.getElementById('f-date').valueAsDate = new Date();
+  document.getElementById('f-ref').value = genRef();
+
+  document.getElementById('entry-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    const btn = document.getElementById('btn-add-entry');
+    const resultEl = document.getElementById('entry-result');
+    btn.disabled = true;
+    resultEl.className = 'result result-info';
+    resultEl.textContent = 'Adding…';
+
+    try {
+      await rpc('demo_add_order_entry', {
+        p_customer_name:    document.getElementById('f-name').value.trim() || null,
+        p_insta_handle:     document.getElementById('f-handle').value.trim(),
+        p_order_date:       document.getElementById('f-date').value,
+        p_paypal_reference: document.getElementById('f-ref').value.trim(),
+        p_variant_id:       document.getElementById('f-variant').value,
+        p_quantity:         parseInt(document.getElementById('f-qty').value, 10),
+        p_unit_price:       parseFloat(document.getElementById('f-price').value),
+      });
+      resultEl.className = 'result result-ok';
+      resultEl.textContent = 'Added to queue.';
+      // Keep PayPal ref so user can add a second item to the same order
+      document.getElementById('f-variant').value = '';
+      document.getElementById('f-qty').value = 1;
+      document.getElementById('f-price').value = '';
+      await loadMetadata();
+    } catch (err) {
+      resultEl.className = 'result result-err';
+      resultEl.textContent = err.message;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
   // ── Initial load ───────────────────────────────────────────
 
   loadMetadata();
   loadProducts();
   loadStock();
+  loadVariantSelect();
 </script>
 </body>
 </html>
