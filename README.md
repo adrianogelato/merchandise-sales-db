@@ -6,6 +6,8 @@ The system has two implementations:
 - **SeaTable** — the live operational tool
 - **Supabase / PostgreSQL** — a portfolio artifact with full DDL, seed data, and RLS policies
 
+**Note:** The SeaTable implementation will not be further described or linked here. It is used for the daily operation at the café.
+
 ---
 
 ## Live Demo
