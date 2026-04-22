@@ -384,7 +384,7 @@ BEGIN
     JOIN orders          o  ON oi.order_id   = o.id
     JOIN product_variants pv ON oi.variant_id = pv.id
     JOIN products         p  ON pv.product_id  = p.id
-    WHERE o.status = 'picked_up'
+    WHERE o.status = 'paid'
     GROUP BY DATE_TRUNC('month', o.order_date)
     ORDER BY DATE_TRUNC('month', o.order_date)
   ) r;
