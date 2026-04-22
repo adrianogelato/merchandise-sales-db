@@ -357,3 +357,40 @@ END;
 $$;
 
 GRANT EXECUTE ON FUNCTION demo_add_order_entry(text, text, date, text, text, int, numeric) TO anon;
+
+
+-- ── demo_get_monthly_revenue() ────────────────────────────────
+-- Returns revenue, cost, and profit aggregated by month.
+-- Mirrors queries/monthly_revenue.sql.
+
+CREATE OR REPLACE FUNCTION demo_get_monthly_revenue()
+RETURNS json
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_rows json;
+BEGIN
+  SELECT COALESCE(json_agg(r ORDER BY r.month), '[]'::json)
+  INTO v_rows
+  FROM (
+    SELECT
+      TO_CHAR(DATE_TRUNC('month', o.order_date), 'Mon YYYY') AS month,
+      SUM(oi.quantity * oi.unit_price)                         AS revenue,
+      SUM(oi.quantity * p.procurement_price)                   AS cost,
+      SUM(oi.quantity * (oi.unit_price - p.procurement_price)) AS profit
+    FROM order_items oi
+    JOIN orders          o  ON oi.order_id   = o.id
+    JOIN product_variants pv ON oi.variant_id = pv.id
+    JOIN products         p  ON pv.product_id  = p.id
+    WHERE o.status = 'picked_up'
+    GROUP BY DATE_TRUNC('month', o.order_date)
+    ORDER BY DATE_TRUNC('month', o.order_date)
+  ) r;
+
+  RETURN v_rows;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION demo_get_monthly_revenue() TO anon;
