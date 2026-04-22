@@ -8,6 +8,29 @@ The system has two implementations:
 
 ---
 
+## Live Demo
+
+The Supabase database is publicly readable for product and stock data. No authentication needed.
+
+**Browse products:**
+```bash
+
+curl 'https://cjrfexiwugazxosmzxwl.supabase.co/rest/v1/products?select=name,base_price,procurement_price' \
+  -H "apikey: sb_publishable_5adWOFHHNQa33Jz6DsqWzQ_AZ2rTYoB" \
+  -H "Accept: application/json"
+```
+
+**Current stock per variant:**
+```bash
+curl 'https://cjrfexiwugazxosmzxwl.supabase.co/rest/v1/product_variants?select=size,current_stock,products(name)' \
+  -H "apikey: sb_publishable_5adWOFHHNQa33Jz6DsqWzQ_AZ2rTYoB" \
+  -H "Accept: application/json"
+```
+
+Replace `YOUR_PROJECT_REF` and `YOUR_ANON_KEY` with the values from **Supabase → Project Settings → API**.
+
+---
+
 ## Repository Structure
 
 ```
