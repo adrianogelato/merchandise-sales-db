@@ -27,8 +27,6 @@ curl 'https://cjrfexiwugazxosmzxwl.supabase.co/rest/v1/product_variants?select=s
   -H "Accept: application/json"
 ```
 
-Replace `YOUR_PROJECT_REF` and `YOUR_ANON_KEY` with the values from **Supabase → Project Settings → API**.
-
 ---
 
 ## Repository Structure
