@@ -46,10 +46,12 @@ curl 'https://cjrfexiwugazxosmzxwl.supabase.co/rest/v1/product_variants?select=s
 │   ├── monthly_revenue.sql             # Revenue, cost, and profit by month
 │   ├── monthly_stakeholder_split.sql   # Per-stakeholder profit by month
 │   └── current_stock_overview.sql      # Current stock per variant
+├── index.html                          # Interactive demo page (GitHub Pages)
 └── supabase/
     ├── etl_supabase.py                 # ETL: order_entry → normalized schema
     ├── seed.sql                        # Anonymized sample data + ETL test rows
-    └── rls_policies.sql                # Row Level Security policies
+    ├── rls_policies.sql                # Row Level Security policies
+    └── demo_functions.sql              # SECURITY DEFINER functions for the demo page
 ```
 
 ---
@@ -127,7 +129,19 @@ Run `supabase/rls_policies.sql` to enable Row Level Security. Three access tiers
 | `authenticated` | Read: `customers`, `orders`, `order_items` |
 | `service_role` | Full access to all tables (bypasses RLS by default) |
 
-### 4. Connect the ETL
+### 4. Deploy the demo functions
+
+Run `supabase/demo_functions.sql` in the SQL editor. This creates three `SECURITY DEFINER` functions that power the interactive demo page:
+
+| Function | Purpose |
+|---|---|
+| `demo_get_metadata()` | Returns table row counts and the unprocessed order queue |
+| `demo_run_etl(limit_n)` | Runs the ETL for up to `limit_n` order groups |
+| `demo_reset_to_seed()` | Truncates all tables and restores the seed dataset |
+
+Each function is granted `EXECUTE` to the `anon` role, so the demo page can call them with the public key. See [Demo Page Security](#demo-page-security) below.
+
+### 5. Connect the ETL
 
 Copy `.env.example` to `.env` at the repo root and fill in your Supabase connection string (find it under **Project Settings → Database → Connection string → URI**):
 
@@ -150,7 +164,7 @@ This step is done to verify the ETL script works as intended before relying on t
 
 ## GitHub Actions
 
-The workflow at `.github/workflows/etl.yml` runs the Supabase ETL automatically every night at 23:00 UTC, and can also be triggered manually from the Actions tab.
+The workflow at `.github/workflows/etl.yml` is triggered manually from the Actions tab. The nightly schedule is commented out in the workflow file and can be re-enabled if needed.
 
 ### Setup
 
@@ -217,6 +231,28 @@ Customers are deduplicated and identified by their Instagram handle, which match
 
 ### NULL size for non-apparel variants
 `product_variants.size` is NULL for products that don't have size options. This avoids a separate table or a sentinel value, while keeping all variants in one place.
+
+### Demo page architecture
+The interactive demo page (`index.html`) needs to trigger the ETL and reset the database from the browser — but both operations require write access that the `anon` role does not have under normal RLS.
+
+The solution is three `SECURITY DEFINER` PostgreSQL functions defined in `supabase/demo_functions.sql`. When a function is declared `SECURITY DEFINER`, it executes with the privileges of the function owner (the `postgres` superuser) rather than the calling role. This means the function can read and write any table, even though the caller only has the public anon key. `EXECUTE` on each function is explicitly granted to `anon`, so the browser can call them via the Supabase REST API without needing a service-role key.
+
+The three functions are:
+- `demo_get_metadata()` — reads row counts and the order queue; safe, read-only behaviour
+- `demo_run_etl(limit_n)` — runs the ETL pipeline up to `limit_n` order groups; refuses if the `orders` table exceeds 100 rows (storage cap for the free tier)
+- `demo_reset_to_seed()` — truncates all tables and re-inserts the seed dataset
+
+### Demo page security
+The `sb_publishable_` key in the demo page is Supabase's anon/publishable key and is **intentionally public**. It is safe to commit and share. What it can do is controlled entirely by RLS policies and the three demo functions. Specifically:
+
+- **Direct table access**: the anon role can only `SELECT` from `product_categories`, `products`, and `product_variants`. All other tables reject anon reads and writes.
+- **`demo_get_metadata`**: read-only; no risk.
+- **`demo_run_etl`**: processes the existing `order_entry` seed rows into the normalized schema. It cannot insert arbitrary data — it can only promote rows that already exist in `order_entry`. The 100-order storage cap prevents repeated cycling from filling the free tier.
+- **`demo_reset_to_seed`**: the most powerful function — it truncates all tables and restores the seed. Since the data is fully anonymised and synthetic, wiping it is harmless. The reset cannot expose or exfiltrate real data.
+
+The only realistic abuse scenario is someone calling the functions in a tight loop to generate database load. Supabase's free tier enforces request rate limits and compute quotas that bound this in practice.
+
+What must **never** be committed: the `service_role` key and `DATABASE_URL` (which contains the database password). The service role bypasses RLS entirely and has unrestricted write access. Both are kept in `.env` (gitignored) and in GitHub Actions secrets.
 
 ---
 
