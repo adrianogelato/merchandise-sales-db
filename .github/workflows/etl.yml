@@ -1,11 +1,11 @@
 name: Run Supabase ETL
 
-# Trigger manually from the Actions tab, or automatically every night at 23:00 UTC.
-# To run on demand: Actions → "Run Supabase ETL" → Run workflow.
+# Trigger manually from the Actions tab: Actions → "Run Supabase ETL" → Run workflow.
+# Action can be scheduled to run automatically every night at 23:00 UTC.
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '0 23 * * *'
+#  schedule:
+#    - cron: '0 23 * * *'
 
 jobs:
   etl:
